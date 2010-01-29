@@ -23,6 +23,7 @@
 (require 'jabber-widget)
 (require 'jabber-newdisco)
 (require 'jabber-autoloads)
+(require 'jabber-muc-nick-coloring)
 
 (require 'cl)
 
@@ -478,22 +479,20 @@ groupchat buffer."
 	)
        ;; Maybe another error occurred.
        (condition
-	(error "Couldn't query groupchat: %s" (jabber-parse-error result)))
+	(error "Couldn't query groupchat: %s" (jabber-parse-error result))))
 
-       ;; Maybe it isn't a chat room.
-       ((not (find "conference" identities 
-		   :key (lambda (i) (aref i 1))
-		   :test #'string=))
-	(error "%s is not a groupchat" (jabber-jid-displayname group))))
-
-      (let ((password
+      ;; Continue only if it is really chat room
+      (unless (not (find "conference" identities 
+                         :key (lambda (i) (aref i 1))
+                         :test #'string=))
+        (let ((password
 	     ;; Is the room password-protected?
 	     (when (member "muc_passwordprotected" features)
 	       (or
 		(jabber-get-conference-data jc group nil :password)
 		(read-passwd (format "Password for %s: " (jabber-jid-displayname group)))))))
 
-	(jabber-groupchat-join-3 jc group nickname password popup)))))
+	(jabber-groupchat-join-3 jc group nickname password popup))))))
 
 (defun jabber-groupchat-join-3 (jc group nickname password popup)
 
@@ -520,15 +519,17 @@ groupchat buffer."
     (let ((buffer (jabber-muc-create-buffer jc group)))
       (switch-to-buffer buffer))))
 
-(defun jabber-muc-read-my-nickname (jc group)
-  "Read nickname for joining GROUP."
+(defun jabber-muc-read-my-nickname (jc group &optional default)
+  "Read nickname for joining GROUP. If DEFAULT is non-nil, return default nick without prompting."
   (let ((default-nickname (or
 			   (jabber-get-conference-data jc group nil :nick)
 			   (cdr (assoc group jabber-muc-default-nicknames))
 			   (plist-get (fsm-get-state-data jc) :username))))
-    (jabber-read-with-input-method (format "Nickname: (default %s) "
+    (if default
+        default-nickname
+        (jabber-read-with-input-method (format "Nickname: (default %s) "
 					   default-nickname) 
-				   nil nil default-nickname)))
+				   nil nil default-nickname))))
 
 (add-to-list 'jabber-jid-muc-menu
 	     (cons "Change nickname" 'jabber-muc-nick))
@@ -845,8 +846,18 @@ Return nil if X-MUC is nil."
 			       (cons ?u nick)
 			       (cons ?r nick)
 			       (cons ?j (concat jabber-group "/" nick))))
-		 'face (if local 'jabber-chat-prompt-local
-                         'jabber-chat-prompt-foreign)
+		 'face (if local        ;Message from you.
+                           (if jabber-muc-colorize-local ;; If colorization enable...
+                               ;; ...colorize nick
+                               (list ':foreground (jabber-muc-nick-get-color nick))
+                             ;; otherwise, use default face.
+                             'jabber-chat-prompt-local)
+                         ;; Message from other participant.
+                         (if jabber-muc-colorize-foreign ;If colorization enable...
+                             ;; ... colorize nick
+                             (list ':foreground (jabber-muc-nick-get-color nick))
+                           ;; otherwise, use default face.
+                           'jabber-chat-prompt-foreign))
 		 'help-echo (concat (format-time-string "On %Y-%m-%d %H:%M:%S" timestamp) " from " nick " in " jabber-group)))
       (jabber-muc-system-prompt))))
 
