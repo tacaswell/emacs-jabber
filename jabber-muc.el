@@ -92,6 +92,7 @@ These fields are available (all are about the group you are chatting
 in):
 
 %n   Roster name of group, or JID if no nickname set
+%b   Name of group from bookmarks or roster name or JID if none set
 %j   Bare JID (without resource)"
   :type 'string
   :group 'jabber-chat)
@@ -173,6 +174,7 @@ Either a string or a buffer is returned, so use `get-buffer' or
   (format-spec jabber-groupchat-buffer-format
 	       (list
 		(cons ?n (jabber-jid-displayname group))
+                (cons ?b (jabber-jid-bookmarkname group))
 		(cons ?j (jabber-jid-user group)))))
 
 (defun jabber-muc-create-buffer (jc group)
@@ -462,29 +464,31 @@ groupchat buffer."
 
 (defun jabber-groupchat-join-2 (jc closure result)
   (destructuring-bind (group nickname popup) closure
-    (let ( ;; Either success...
+    (let* ( ;; Either success...
 	  (identities (car result))
 	  (features (cadr result))
 	  ;; ...or error
-	  (condition (when (eq (car result) 'error) (jabber-error-condition result))))
+	  (condition (when (eq identities 'error) (jabber-error-condition result))))
       (cond
        ;; Maybe the room doesn't exist yet.
        ((eq condition 'item-not-found)
-	(unless (y-or-n-p (format "%s doesn't exist.  Create it? " (jabber-jid-displayname group)))
+	(unless (or jabber-silent-mode
+                    (y-or-n-p (format "%s doesn't exist.  Create it? "
+                                      (jabber-jid-displayname group))))
 	  (error "Non-existent groupchat")))
 
        ;; Maybe the room doesn't support disco.
        ((eq condition 'feature-not-implemented)
-	t				;whatever...
+	t				;whatever... we will ignore it later
 	)
-       ;; Maybe another error occurred.
+       ;; Maybe another error occurred. Report it to user
        (condition
-	(error "Couldn't query groupchat: %s" (jabber-parse-error result))))
+	(message "Couldn't query groupchat: %s" (jabber-parse-error result))))
 
-      ;; Continue only if it is really chat room
-      (unless (not (find "conference" identities 
+      ;; Continue only if it is really chat room. Ignore errors
+      (unless (and (not (eq identities 'error)) (not (find "conference" identities 
                          :key (lambda (i) (aref i 1))
-                         :test #'string=))
+                         :test #'string=)))
         (let ((password
 	     ;; Is the room password-protected?
 	     (when (member "muc_passwordprotected" features)
