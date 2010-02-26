@@ -138,7 +138,7 @@ Default is nil, cause MUC logging may be i/o-intensive."
   (if jabber-use-global-history
       jabber-global-history-filename
     ;; jabber-jid-symbol is the best canonicalization we have.
-    (concat jabber-history-dir 
+    (concat jabber-history-dir
 	    "/" (symbol-name (jabber-jid-symbol contact)))))
 
 (defun jabber-history-log-message (direction from to body timestamp)
@@ -199,16 +199,23 @@ of the log file."
 	(if jabber-use-global-history
             (insert-file-contents history-file)
           (let* ((lines-collected nil)
-                (matched-files (directory-files jabber-history-dir t (file-name-nondirectory history-file)))
-                (matched-files (cons (car matched-files) (sort (cdr matched-files) 'string>-numerical))))
+                (matched-files
+		 (directory-files jabber-history-dir t
+				  (concat "^"
+					  (regexp-quote (file-name-nondirectory
+							 history-file)))))
+                (matched-files
+		 (cons (car matched-files)
+		       (sort (cdr matched-files) 'string>-numerical))))
             (while (not lines-collected)
               (if (null matched-files)
                   (setq lines-collected t)
                 (let ((file (pop matched-files)))
                   (progn
                     (insert-file-contents file)
-                    (if (>= (count-lines (point-min) (point-max)) number)
-                        (setq lines-collected t)))))))))
+                    (when (numberp number)
+                      (if (>= (count-lines (point-min) (point-max)) number)
+                        (setq lines-collected t))))))))))
       (let (collected current-line)
 	(goto-char (point-max))
 	(catch 'beginning-of-file
@@ -232,7 +239,7 @@ of the log file."
 			   (> end-time (jabber-float-time (jabber-parse-time
 							   (aref current-line 0)))))
 		       (string-match
-			jid-regexp 
+			jid-regexp
 			(car
 			 (remove "me"
 				 (list (aref current-line 2)
@@ -260,7 +267,7 @@ Return a list of history entries (vectors), limited by
 If BEFORE is non-nil, it should be a float-time after which
 no entries will be fetched.  `jabber-backlog-days' still
 applies, though."
-  (jabber-history-query 
+  (jabber-history-query
    (and jabber-backlog-days
 	(- (jabber-float-time) (* jabber-backlog-days 86400.0)))
    before
@@ -310,7 +317,7 @@ applies, though."
 	  (let ((history-file (jabber-history-filename current-jid)))
 	    (write-region jid-start (point-max) history-file t 'quiet))))))
   (message "Done.  Please change `jabber-use-global-history' now."))
-	
+
 (provide 'jabber-history)
 
 ;; arch-tag: 0AA0C235-3FC0-11D9-9FE7-000A95C2FCD0
