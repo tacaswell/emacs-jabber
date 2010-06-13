@@ -689,6 +689,33 @@ See Info node `(jabber)XMPP URIs'."
 	((> (string-to-number (substring s1 0 1)) (string-to-number (substring s2 0 1))) t)
 	(t (string>-numerical (substring s1 1) (substring s2 1)))))
 
+(defun jabber-append-string-to-file (string file &optional func &rest args)
+  "Append STRING (may be nil) to FILE. Create FILE if needed.
+If FUNC is non-nil, then call FUNC with ARGS at beginning of
+temporaly buffer _before_ inserting STRING."
+  (when (or (stringp string) (functionp func))
+    (with-temp-buffer
+      (when (functionp func) (apply func args))
+      (when (stringp string) (insert string))
+      (write-region (point-min) (point-max) file t (list t)))))
+
+(defun jabber-tree-map (fn tree)
+  "Apply FN to all nodes in the TREE starting with root. FN is
+applied to the node and not to the data itself."
+  (let ((result (cons nil nil)))
+    (do ((tail tree (cdr tail))
+	 (prev result end)
+	 (end result (let* ((x (car tail))
+			    (val (if (atom x)
+				     (funcall fn x)
+                                   (jabber-tree-map fn x))))
+		       (setf (car end) val (cdr end) (cons nil
+                                                           nil)))))
+	((atom tail)
+	 (progn
+	   (setf (cdr prev) (if tail (funcall fn tail) nil))
+	   result)))))
+
 (provide 'jabber-util)
 
 ;;; arch-tag: cfbb73ac-e2d7-4652-a08d-dc789bcded8a
