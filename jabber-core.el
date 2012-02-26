@@ -64,6 +64,10 @@
 
 (defvar jabber-choked-timer nil)
 
+(defvar jabber-namespace-prefixes nil
+  "XML namespace prefixes used for the current connection.")
+(make-variable-buffer-local 'jabber-namespace-prefixes)
+
 (defgroup jabber-core nil "customize core functionality"
   :group 'jabber)
 
@@ -440,7 +444,7 @@ With double prefix argument, specify more connection details."
      (let ((stanza (cadr event)))
        (cond
 	;; At this stage, we only expect a stream:features stanza.
-	((not (eq (jabber-xml-node-name stanza) 'stream:features))
+	((not (eq (jabber-xml-node-name stanza) 'features))
 	 (list nil (plist-put state-data
 			      :disconnection-reason
 			      (format "Unexpected stanza %s" stanza))))
@@ -632,7 +636,7 @@ With double prefix argument, specify more connection details."
     (:stanza
      (let ((stanza (cadr event)))
        (cond
-	((eq (jabber-xml-node-name stanza) 'stream:features)
+	((eq (jabber-xml-node-name stanza) 'features)
 	 (if (and (jabber-xml-get-children stanza 'bind)
 		  (jabber-xml-get-children stanza 'session))
 	     (labels
@@ -854,30 +858,24 @@ DATA is any sexp."
 	 (return (fsm-send fsm :stream-end)))
 
        ;; Stream header?
-       (when (looking-at "<stream:stream[^>]*>")
-	 (let ((stream-header (match-string 0))
-	       (ending-at (match-end 0))
-	       session-id stream-version)
-	   ;; These regexps extract attribute values from the stream
-	   ;; header, taking into account that the quotes may be either
-	   ;; single or double quotes.
-	   (setq session-id
-		 (and (or (string-match "id='\\([^']+\\)'" stream-header)
-			  (string-match "id=\"\\([^\"]+\\)\"" stream-header))
-		      (jabber-unescape-xml (match-string 1 stream-header))))
-	   (setq stream-version
-		 (and (or
-		       (string-match "version='\\([0-9.]+\\)'" stream-header)
-		       (string-match "version=\"\\([0-9.]+\\)\"" stream-header))
-		      (match-string 1 stream-header)))
-	   (jabber-log-xml fsm "receive" stream-header)
-	   
-	   ;; If the server is XMPP compliant, i.e. there is a version attribute
-	   ;; and it's >= 1.0, there will be a stream:features tag shortly,
-	   ;; so just wait for that.
+       (when (looking-at "<stream:stream[^>]*\\(>\\)")
+	 ;; Let's pretend that the stream header is a closed tag,
+	 ;; and parse it as such.
+	 (replace-match "/>" t t nil 1)
+	 (let* ((ending-at (point))
+		(stream-header (car (xml-parse-region (point-min) ending-at)))
+		(session-id (jabber-xml-get-attribute stream-header 'id))
+		(stream-version (jabber-xml-get-attribute stream-header 'version)))
 
+	   ;; Need to keep any namespace attributes on the stream
+	   ;; header, as they can affect any stanza in the
+	   ;; stream...
+	   (setq jabber-namespace-prefixes
+		 (jabber-xml-merge-namespace-declarations
+		  (jabber-xml-node-attributes stream-header)
+		  nil))
+	   (jabber-log-xml fsm "receive" stream-header)
 	   (fsm-send fsm (list :stream-start session-id stream-version))
-	 
 	   (delete-region (point-min) ending-at)))
        
        ;; Normal tag
@@ -911,7 +909,9 @@ DATA is any sexp."
 	  (sit-for 2)))
        (delete-region (point-min) (point))
 
-       (fsm-send fsm (list :stanza (car xml-data)))
+       (fsm-send fsm (list :stanza
+			   (jabber-xml-resolve-namespace-prefixes
+			    (car xml-data) nil jabber-namespace-prefixes)))
        ;; XXX: move this logic elsewhere
        ;; We explicitly don't catch errors in jabber-process-input,
        ;; to facilitate debugging.
